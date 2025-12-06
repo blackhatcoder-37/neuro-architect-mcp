@@ -19,17 +19,4 @@
 
 2.  **Install dependencies:**
     ```bash
-    pip install -r requirements.txt
-    ```
-
-3.  **Environment Setup:**
-    Create a `.env` file in the root directory to configure your environment variables (refer to `.env.example` if available).
-
-## 💻 Usage
-
-### Running the System
-To start the autonomous monitoring system, run the main application from the `src` directory:
-
-```bash
-python src/main.py
-# (Note: Verify the entry file name in your src folder)
+    pip install -r requirements.tx
