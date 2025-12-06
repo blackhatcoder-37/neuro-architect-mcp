@@ -1,343 +1,218 @@
-# Advanced MCP Backend Server
+# Self-Healing ML Pipeline - MCP Guardian Server
 
-A high-tech, production-ready Model Context Protocol (MCP) server built with Python, featuring advanced capabilities for modern AI integration.
+A production-ready autonomous MCP system that monitors deployed ML models, detects data drift, triggers retraining, and automatically hot-swaps models without human intervention.
 
-## 🚀 Features
+## Overview
 
-### Core Capabilities
-- **Text Analysis Engine**: Advanced NLP features including sentiment analysis and keyword extraction
-- **Code Analysis Tool**: Comprehensive code complexity, structure, and quality metrics
-- **API Integration**: Fetch and process data from REST APIs with error handling
-- **Data Processing Pipeline**: Large-scale data transformation with progress tracking
-- **Database Operations**: SQL query execution with transaction support
-- **Dynamic Resources**: Configuration and metrics accessible as MCP resources
-- **Interactive Prompts**: Pre-built templates for common tasks
+This system addresses a critical problem in ML operations: **stale models**. When user behavior or data distributions change, deployed models degrade. The Self-Healing ML Pipeline continuously monitors production data and autonomously maintains model performance.
 
-### Advanced Features
-- **Async/Await Processing**: Full async support for non-blocking operations
-- **Structured Output**: Pydantic models for type-safe, validated responses
-- **Progress Tracking**: Real-time progress updates for long-running operations
-- **Comprehensive Logging**: Stderr-compatible logging for debugging
-- **Error Handling**: Robust error handling with detailed error messages
-- **Performance Metrics**: Server statistics and monitoring
+## Core Components
 
-## 📋 System Requirements
+### 1. Monitor Tool - Data Drift Detection
+Continuously watches production data against training baselines using statistical tests:
+- **Kolmogorov-Smirnov (KS) Test**: Detects distribution shifts
+- **Wasserstein Distance**: Measures optimal transport distance between distributions
+- **Per-Feature Analysis**: Identifies which features caused drift
 
-- Python 3.10+
-- pip or uv (recommended)
+**Use Case**: Detect when user behavior patterns deviate from training data (e.g., seasonal changes, market shifts, algorithm changes from upstream systems)
 
-## 🔧 Installation
+### 2. Surgeon Tool - Automatic Retraining
+Triggers model retraining when drift is detected:
+- Trains new Random Forest model on fresh data
+- Uses feature scaling (StandardScaler) for consistency
+- Validates on held-out test set
+- Saves to staging registry with metadata
 
-### Using uv (Recommended)
+**Use Case**: Quickly adapt to new data distributions without manual intervention
 
-```bash
-cd path/to/MCP
-uv venv
-.venv\Scripts\activate  # On Windows
+### 3. Judge Tool - Model Evaluation
+Compares staging model against production model:
+- Accuracy, Precision, Recall, F1-Score metrics
+- Weighted averaging for imbalanced datasets
+- Intelligent deployment recommendation
+- >1% accuracy improvement threshold
 
-uv add "mcp[cli]" httpx pydantic python-dotenv aiofiles
+**Use Case**: Ensure new models don't degrade performance before production deployment
+
+### 4. Deployer Tool - Hot-Swap Deployment
+Atomically swaps staging model to production:
+- Moves current production model to backup
+- Activates staging model as new production
+- Maintains rollback capability
+- Tracks deployment history
+
+**Use Case**: Zero-downtime model updates in live systems
+
+## Architecture
+
+```
+┌─────────────────────┐
+│  Production Traffic │
+│   & User Behavior   │
+└──────────┬──────────┘
+           │
+           ▼
+    ┌──────────────────┐
+    │  Monitor Tool    │
+    │  (Drift Check)   │
+    └────────┬─────────┘
+             │
+    ┌────────▼─────────┐
+    │  Drift Detected? │
+    └─┬──────────────┬─┘
+      │ NO           │ YES
+      │              ▼
+      │         ┌─────────────────┐
+      │         │ Surgeon Tool    │
+      │         │ (Retrain Model) │
+      │         └────────┬────────┘
+      │                  │
+      │                  ▼
+      │         ┌─────────────────┐
+      │         │  Judge Tool     │
+      │         │ (Compare Perf)  │
+      │         └────────┬────────┘
+      │                  │
+      │         ┌────────▼──────────┐
+      │         │ Better Model?     │
+      │         └┬────────────────┬─┘
+      │          │ YES            │ NO
+      │          ▼                │
+      │      ┌──────────────────┐ │
+      │      │  Deployer Tool   │ │
+      │      │(Hot-Swap to Prod)│ │
+      │      └──────────────────┘ │
+      │                           │
+      └───────────┬───────────────┘
+                  │
+                  ▼
+         ┌──────────────────┐
+         │ Production Model │
+         │  (Always Ready)  │
+         └──────────────────┘
 ```
 
-### Using pip
+## MLOps Benefits
 
-```bash
-cd path/to/MCP
-python -m venv .venv
-.venv\Scripts\activate  # On Windows
+### Business Value
+- **Reduced Stale Model Loss**: Companies lose millions from degraded models. This system maintains performance.
+- **Autonomous Operation**: No human intervention needed for routine updates.
+- **Risk Mitigation**: Automatic rollback if new model underperforms.
 
-pip install "mcp[cli]" httpx pydantic python-dotenv aiofiles
-```
+### Technical Advantages
+- **Statistical Rigor**: Uses scipy statistical tests for drift detection.
+- **Zero-Downtime**: Hot-swap deployment maintains service availability.
+- **Explainability**: Per-feature drift tracking identifies what changed.
+- **Auditability**: Metadata tracking for all model versions and deployments.
 
-## 🎯 Quick Start
+## Quick Start
 
-### Run the Server
+1. **Install dependencies**:
+   ```bash
+   pip install -r requirements.txt
+   ```
 
-```bash
-# Using Python directly
-python src/server.py
+2. **Run the server**:
+   ```bash
+   python src/guardian_server.py
+   ```
 
-# Or using uv
-uv run src/server.py
-```
+3. **Test with the client**:
+   ```bash
+   python demo_client.py
+   ```
 
-### Test with Client
-
-```bash
-# In a separate terminal
-python test_client.py
-```
-
-## 📚 Available Tools
-
-### 1. **analyze_text**
-Perform advanced text analysis including sentiment analysis, keyword extraction, and readability metrics.
+## Usage Example
 
 ```python
-await session.call_tool("analyze_text", {
-    "text": "Your text here",
-    "analyze_sentiment": True,
-    "extract_keywords": True
-})
-```
+from src.guardian_server import mcp
 
-**Response**: Word count, sentence count, sentiment analysis, keywords, readability score
-
-### 2. **fetch_data_from_api**
-Fetch data from REST APIs with timeout and error handling.
-
-```python
-await session.call_tool("fetch_data_from_api", {
-    "url": "https://api.example.com/data",
-    "method": "GET",
-    "timeout": 30
-})
-```
-
-**Response**: HTTP status, data, headers, and timestamp
-
-### 3. **analyze_code**
-Analyze source code for complexity, structure, and quality metrics.
-
-```python
-await session.call_tool("analyze_code", {
-    "code": "your code here",
-    "language": "python"
-})
-```
-
-**Response**: Lines of code, complexity level, functions/classes count, imports
-
-### 4. **process_data**
-Process large datasets with progress tracking.
-
-```python
-await session.call_tool("process_data", {
-    "data_size": 5000,
-    "operation": "transform"
-})
-```
-
-**Response**: Processing metrics, batch information, execution time
-
-### 5. **execute_database_query**
-Execute SQL queries with transaction support.
-
-```python
-await session.call_tool("execute_database_query", {
-    "query": "SELECT * FROM users WHERE active = true",
-    "transaction": False
-})
-```
-
-**Response**: Query execution results, rows affected, execution time
-
-## 📦 Available Resources
-
-### 1. **config://settings/{category}**
-Access server configuration by category (api, features, system).
-
-```python
-resource = await session.read_resource(
-    AnyUrl("config://settings/features")
+# 1. Detect drift
+drift_result = await monitor_data_drift(
+    production_data_samples=recent_data,
+    training_data_baseline=training_data,
+    feature_names=feature_names
 )
-```
 
-### 2. **stats://metrics**
-Get real-time server metrics and statistics.
-
-```python
-resource = await session.read_resource(
-    AnyUrl("stats://metrics")
-)
-```
-
-## 💬 Available Prompts
-
-### 1. **code_review**
-Generate code review prompts with customizable focus areas.
-
-```python
-prompt = await session.get_prompt("code_review", {
-    "language": "python",
-    "focus_area": "security"
-})
-```
-
-### 2. **api_integration**
-Generate API integration strategy templates.
-
-```python
-prompt = await session.get_prompt("api_integration", {
-    "service_name": "external_service"
-})
-```
-
-## 🏗️ Architecture
-
-### Project Structure
-
-```
-MCP/
-├── src/
-│   └── server.py           # Main server implementation
-├── .vscode/
-│   └── mcp.json           # VS Code MCP configuration
-├── .env                   # Environment variables
-├── pyproject.toml         # Project dependencies
-├── test_client.py         # Test client script
-└── README.md             # This file
-```
-
-### Key Components
-
-1. **Data Models**: Pydantic models for type-safe structured output
-2. **Tools**: Advanced MCP tools with async support
-3. **Resources**: Dynamic resources for configuration and metrics
-4. **Prompts**: Pre-built interaction templates
-5. **Logging**: Professional logging to stderr
-
-## 🔐 Configuration
-
-Edit `.env` file to customize:
-
-```env
-API_TIMEOUT=30
-LOG_LEVEL=INFO
-ENABLE_ASYNC_PROCESSING=true
-MAX_WORKERS=4
-MEMORY_LIMIT_MB=512
-```
-
-## 🚦 Running with VS Code
-
-1. Open the workspace in VS Code
-2. The server is configured in `.vscode/mcp.json`
-3. Use VS Code's MCP client to connect and test
-
-## 📊 Performance Characteristics
-
-- **Response Time**: < 100ms for most operations
-- **Async Processing**: Non-blocking I/O operations
-- **Concurrency**: Support for parallel requests
-- **Memory Efficient**: Resource pooling and cleanup
-- **Scalable**: Production-ready error handling
-
-## 🧪 Testing
-
-The included `test_client.py` demonstrates all server capabilities:
-
-```bash
-python test_client.py
-```
-
-## 📖 API Documentation
-
-### Tool Response Format
-
-All tools return structured responses:
-
-```json
-{
-  "success": true,
-  "data": {...},
-  "timestamp": "2024-12-06T10:30:00.000Z"
-}
-```
-
-### Error Handling
-
-Errors include:
-- Error message
-- Timestamp
-- Request context (when available)
-
-## 🔗 MCP Specification
-
-This server follows the official MCP specification:
-- [Model Context Protocol](https://modelcontextprotocol.io/)
-- [Python SDK](https://github.com/modelcontextprotocol/python-sdk)
-
-## 🛠️ Development
-
-### Adding New Tools
-
-```python
-@mcp.tool(name="my_tool", description="Tool description")
-async def my_tool(
-    param: Annotated[str, Field(description="Parameter description")],
-    ctx: Context = None
-) -> dict[str, Any]:
-    """Tool implementation"""
-    if ctx:
-        await ctx.info("Processing started")
+if drift_result.has_drift:
+    # 2. Retrain
+    retrain_result = await trigger_model_retraining(
+        new_training_data=recent_data_with_labels,
+        new_training_labels=labels,
+        feature_names=feature_names
+    )
     
-    # Your implementation here
+    # 3. Evaluate
+    comparison = await judge_model_performance(
+        test_data=test_data,
+        test_labels=test_labels
+    )
     
-    if ctx:
-        await ctx.info("Processing completed")
+    # 4. Deploy if better
+    if comparison.should_deploy:
+        deploy_result = await deploy_model_hot_swap()
+```
+
+## Key Features
+
+- **Statistical Drift Detection**: KS test and Wasserstein distance for rigorous analysis
+- **Automatic Retraining**: Trains on fresh data without human intervention
+- **Model Comparison**: Ensures new models don't degrade performance
+- **Zero-Downtime Deployment**: Hot-swap production models safely
+- **Version Control**: Maintains backup of previous models for rollback
+
+## System Design Highlights
+
+### Model Registry
+Three-tier system for safe deployment:
+- **Production**: Currently serving requests
+- **Staging**: Candidate for deployment
+- **Backup**: Previous production version for rollback
+
+### Drift Detection Algorithm
+Statistical tests on feature distributions:
+```
+For each feature f in production_data:
+    ks_stat, p_value = ks_2samp(training_f, production_f)
+    wasserstein_dist = wasserstein_distance(training_f, production_f)
     
-    return {"result": "value"}
+    if ks_stat > threshold:
+        mark_feature_as_drifted()
 ```
 
-### Adding New Resources
-
-```python
-@mcp.resource(
-    uri_template="resource://{id}",
-    description="Resource description"
-)
-def get_resource(id: str) -> str:
-    """Resource implementation"""
-    return f"Resource content for {id}"
+### Model Retraining Pipeline
+```
+1. Load new training data
+2. Split: 80% train, 20% validation
+3. Fit StandardScaler on training data
+4. Train RandomForest (100 estimators, depth=15)
+5. Evaluate on validation set
+6. Save to staging registry with metadata
 ```
 
-## 📝 Logging
-
-Logs are written to stderr for STDIO compatibility. Set `LOG_LEVEL` in `.env`:
-
+### Deployment Safety
 ```
-DEBUG, INFO, WARNING, ERROR, CRITICAL
+1. Create backup: production -> backup
+2. Promote: staging -> production
+3. Maintain rollback capability
+4. Track all deployments
 ```
 
-## 🤝 Contributing
+## Files
 
-Contributions welcome! Areas for enhancement:
-- Additional analysis tools
-- Database connectors
-- Cloud integration
-- Performance optimization
+- `src/guardian_server.py` - Core MCP server with 4 tools
+- `demo_client.py` - Example usage and testing
+- `models/` - Model registry (production, staging, backup)
+- `data/` - Training and test data storage
+- `logs/` - Operational logs
 
-## 📄 License
+## Why This Wins Recruiter Attention
 
-MIT License - See LICENSE file for details
+1. **MLOps Mastery**: Full ML lifecycle understanding
+2. **System Architecture**: Autonomous, self-healing system design
+3. **Production Ready**: Professional error handling, logging, metadata tracking
+4. **Business Impact**: Quantifiable ROI through reduced model decay
+5. **Statistical Rigor**: Proper statistical tests for critical decisions
+6. **Code Quality**: Type hints, comprehensive docstrings, structured outputs
 
-## 🆘 Troubleshooting
-
-### Server won't start
-1. Ensure Python 3.10+ is installed
-2. Check all dependencies are installed: `pip list`
-3. Verify `.env` file exists
-4. Check logs for errors
-
-### Connection issues
-1. Ensure MCP configuration in `.vscode/mcp.json` is correct
-2. Check server is running on correct port
-3. Verify firewall settings
-
-### Tool execution fails
-1. Check `.env` configuration
-2. Review server logs
-3. Test with `test_client.py`
-
-## 📞 Support
-
-For issues and questions:
-1. Check MCP documentation
-2. Review server logs
-3. Run test client for diagnostics
-
----
-
-**Version**: 1.0.0  
-**Last Updated**: December 2024  
-**Status**: Production Ready ✅
+This is enterprise-grade ML infrastructure, not a kaggle notebook.

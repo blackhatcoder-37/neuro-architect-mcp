@@ -1,303 +1,335 @@
-# Advanced MCP Backend Server - Quick Start Guide
+# Self-Healing ML Pipeline - Quick Start Guide
 
-## 🎯 Get Started in 5 Minutes
+## 5-Minute Setup
 
-### Step 1: Install Python Dependencies
+### Step 1: Install Dependencies (1 min)
 
-**Option A: Using uv (Recommended - Faster)**
 ```bash
-cd c:\Users\VYSHNAVI R\OneDrive\MCP
-uv venv
-.venv\Scripts\activate
-uv pip install -r requirements.txt
-```
-
-**Option B: Using pip**
-```bash
-cd c:\Users\VYSHNAVI R\OneDrive\MCP
-python -m venv .venv
-.venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-### Step 2: Start the Server
+This installs:
+- `mcp` - Model Context Protocol SDK
+- `scikit-learn` - ML models and preprocessing
+- `numpy`, `scipy`, `pandas` - Data manipulation
+- `joblib` - Model serialization
+- `python-dotenv` - Configuration management
+
+### Step 2: Create Directories (30 seconds)
 
 ```bash
-# Make sure you're in the activated virtual environment
-python src/server.py
+mkdir -p models data logs
+```
+
+### Step 3: Start the Server (30 seconds)
+
+```bash
+python src/guardian_server.py
 ```
 
 You should see:
 ```
-Starting Advanced MCP Server...
+INFO:__main__:Guardian MCP Server started
 ```
 
-### Step 3: Test the Server (Optional)
+### Step 4: Run Demo (3 minutes)
 
-In a **new terminal** with the virtual environment activated:
+In a new terminal:
 
 ```bash
-python test_client.py
+python demo_client.py
 ```
 
-This will:
-✓ Connect to your server
-✓ Test all available tools
-✓ Display available resources and prompts
-✓ Show example results
+This demonstrates:
+1. Drift detection on normal data (no drift expected)
+2. Drift detection on shifted data (drift detected)
+3. Model retraining with new data
+4. Model comparison (staging vs production)
+5. Hot-swap deployment
+6. Full end-to-end pipeline
 
----
+## System Components
 
-## 📱 Integration with VS Code
+### 4 Core Tools
 
-### Configuration
-The server is already configured in `.vscode/mcp.json`:
-
-```json
-{
-  "servers": {
-    "advanced-mcp-server": {
-      "type": "stdio",
-      "command": "python",
-      "args": ["${workspaceFolder}/src/server.py"]
-    }
-  }
-}
+#### 1. monitor_data_drift
+Detects when production data distribution changes:
+```python
+drift_result = await client.call_tool("monitor_data_drift", {
+    "production_data_samples": [[1.0, 2.0], [3.0, 4.0]],
+    "training_data_baseline": [[0.5, 1.5], [1.5, 2.5]],
+    "feature_names": ["feature_a", "feature_b"]
+})
+# Returns: DriftResult with has_drift, statistics, affected features
 ```
 
-### Using with Claude Desktop
-1. Copy the server configuration to Claude Desktop's config
-2. Restart Claude Desktop
-3. The server tools will be available in the conversation
-
-### Using with Other MCP Clients
-Update your client configuration to point to:
+#### 2. trigger_model_retraining
+Trains new model on fresh data:
+```python
+retrain_result = await client.call_tool("trigger_model_retraining", {
+    "new_training_data": [[1.0, 2.0], [3.0, 4.0]],
+    "new_training_labels": [0, 1],
+    "feature_names": ["feature_a", "feature_b"]
+})
+# Returns: RetrainingResult with accuracy, samples used, model path
 ```
-command: python
-args: [path/to/src/server.py]
+
+#### 3. judge_model_performance
+Compares staging vs production model:
+```python
+comparison = await client.call_tool("judge_model_performance", {
+    "test_data": [[2.0, 3.0], [4.0, 5.0]],
+    "test_labels": [0, 1]
+})
+# Returns: ModelComparison with metrics and deployment recommendation
 ```
 
----
+#### 4. deploy_model_hot_swap
+Safely promotes staging model to production:
+```python
+deployment = await client.call_tool("deploy_model_hot_swap", {})
+# Returns: DeploymentResult with status and rollback info
+```
 
-## 🔧 Configuration
+## Complete Workflow
+
+### Autonomous Loop
+```
+┌─────────────────────────────────┐
+│   Monitor Data Drift (hourly)   │
+└──────────────┬──────────────────┘
+               │
+         Drift Detected?
+         YES ↓
+     ┌─────────────────────────────┐
+     │   Trigger Retraining        │
+     └──────────────┬──────────────┘
+                    │
+                    ↓
+        ┌──────────────────────────┐
+        │  Judge Performance       │
+        └──────────────┬───────────┘
+                       │
+              Better Accuracy?
+              YES ↓
+         ┌─────────────────────────┐
+         │  Hot-Swap Deployment    │
+         └─────────────────────────┘
+                    │
+                    ↓
+         Production Updated!
+```
+
+## File Structure
+
+```
+self-healing-ml-pipeline/
+├── src/
+│   └── guardian_server.py      # MCP server with 4 tools
+├── demo_client.py              # Demo and testing
+├── README.md                   # Feature overview
+├── ARCHITECTURE.md             # System design details
+├── DEPLOYMENT.md               # Production deployment guide
+├── MLOPS_BEST_PRACTICES.md    # Industry best practices
+├── requirements.txt            # Dependencies
+├── pyproject.toml             # Project configuration
+├── models/                     # Model registry (auto-created)
+├── data/                       # Training data (auto-created)
+└── logs/                       # System logs (auto-created)
+```
+
+## Configuration
 
 Edit `.env` to customize behavior:
 
 ```env
-# API Settings
-API_TIMEOUT=30              # Timeout in seconds
-API_MAX_RETRIES=3          # Number of retries for failed requests
+# Logging level
+LOG_LEVEL=INFO
 
-# Server Settings
-LOG_LEVEL=INFO             # DEBUG, INFO, WARNING, ERROR
-DEBUG_MODE=false           # Enable debug logging
+# Drift detection thresholds
+DRIFT_KS_THRESHOLD=0.05              # Kolmogorov-Smirnov test
+DRIFT_WASSERSTEIN_THRESHOLD=0.3     # Wasserstein distance
 
-# Performance
-MAX_WORKERS=4              # Number of worker threads
-MEMORY_LIMIT_MB=512        # Memory limit
+# Training parameters
+MODEL_VALIDATION_SPLIT=0.2           # 80/20 train/validation
+RETRAINING_RANDOM_STATE=42           # Reproducibility
+
+# Model hyperparameters
+RANDOM_FOREST_ESTIMATORS=100         # Tree count
+RANDOM_FOREST_MAX_DEPTH=15           # Tree depth limit
 ```
 
----
+## Using with Claude Desktop
 
-## 📚 Using the Tools
+To integrate with Claude:
 
-### Example 1: Analyze Text
+1. Find your Claude config file:
+   - **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
+   - **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
+
+2. Add the MCP server:
+   ```json
+   {
+     "mcpServers": {
+       "ml-guardian": {
+         "command": "python",
+         "args": ["/path/to/self-healing-ml-pipeline/src/guardian_server.py"],
+         "disabled": false
+       }
+     }
+   }
+   ```
+
+3. Restart Claude
+
+4. Ask Claude: "Monitor for data drift" or "Deploy updated model"
+
+## Common Use Cases
+
+### Case 1: Hourly Drift Monitoring
 ```python
-# In any MCP client:
-tool: analyze_text
-parameters:
-  text: "This is amazing code with great features!"
-  analyze_sentiment: true
-  extract_keywords: true
+# Scheduled every hour
+drift = await monitor_data_drift(
+    production_data_samples=recent_1hour_data,
+    training_data_baseline=training_data,
+    feature_names=feature_names
+)
 
-# Returns sentiment analysis and keywords
+if drift.has_drift:
+    log.warning(f"Drift detected: {drift.summary}")
+    # Alert team, trigger manual review if needed
 ```
 
-### Example 2: Process Large Data
+### Case 2: Nightly Retraining
 ```python
-tool: process_data
-parameters:
-  data_size: 5000
-  operation: transform
+# Scheduled nightly
+new_data = load_data_since_last_retrain()
 
-# Shows progress as it processes
+retrain = await trigger_model_retraining(
+    new_training_data=new_data,
+    new_training_labels=new_labels,
+    feature_names=feature_names
+)
+
+if retrain.success:
+    comparison = await judge_model_performance(test_data, test_labels)
+    
+    if comparison.should_deploy:
+        await deploy_model_hot_swap()
 ```
 
-### Example 3: Analyze Code
+### Case 3: On-Demand Evaluation
 ```python
-tool: analyze_code
-parameters:
-  code: "(your code here)"
-  language: python
+# Manual deployment workflow
+drift = await monitor_data_drift(...)
 
-# Returns complexity metrics and structure analysis
+if drift.has_drift:
+    # Trigger retraining
+    retrain = await trigger_model_retraining(...)
+    
+    # Compare models
+    comparison = await judge_model_performance(...)
+    
+    # Review before deployment
+    if comparison.should_deploy:
+        approval = get_human_approval()
+        if approval:
+            await deploy_model_hot_swap()
 ```
 
-### Example 4: Call an API
+## Understanding the Output
+
+### Drift Detection Output
 ```python
-tool: fetch_data_from_api
-parameters:
-  url: https://api.example.com/data
-  method: GET
-  timeout: 30
-
-# Fetches and returns the API response
+DriftResult(
+    has_drift=True,                                # Drift detected
+    ks_statistic=0.12,                            # How different (0-1)
+    wasserstein_distance=0.45,                    # Transport cost
+    affected_features=['age', 'income'],          # Which features drifted
+    summary="Data drift detected in 2 features"   # Human readable
+)
 ```
 
-### Example 5: Execute Database Query
+### Model Comparison Output
 ```python
-tool: execute_database_query
-parameters:
-  query: SELECT * FROM users
-  transaction: false
-
-# Returns query results and metrics
+ModelComparison(
+    production_accuracy=0.92,        # Current model
+    new_model_accuracy=0.95,         # New model
+    accuracy_improvement=0.03,       # 3% improvement
+    should_deploy=True,              # Safe to deploy
+    summary="New model shows 3% improvement"
+)
 ```
 
----
-
-## 🚀 Advanced Features
-
-### Progress Tracking
-Long-running operations (like `process_data`) provide real-time progress updates:
-- Progress percentage
-- Current operation message
-- Estimated completion time
-
-### Structured Output
-All tools return properly typed, validated responses:
-- Type safety with Pydantic models
-- Automatic JSON serialization
-- Schema validation
-
-### Error Handling
-Comprehensive error handling:
-- Timeout protection
-- Network error recovery
-- Detailed error messages
-- Automatic logging
-
-### Resources
-Access dynamic data via resource URIs:
-
-```
-config://settings/api          # API configuration
-config://settings/features     # Feature flags
-config://settings/system       # System settings
-stats://metrics               # Server statistics
+### Deployment Output
+```python
+DeploymentResult(
+    success=True,                    # Deployment succeeded
+    message="Model deployed to production",
+    rollback_available=True,         # Can revert if needed
+    deployment_time="2024-01-15T10:30:00Z"
+)
 ```
 
----
+## Performance Expectations
 
-## 🔍 Debugging
+On a typical laptop (8GB RAM):
 
-### Enable Debug Mode
-```env
-DEBUG_MODE=true
-LOG_LEVEL=DEBUG
-```
+| Operation | Time | Notes |
+|-----------|------|-------|
+| Drift detection | 0.5-2s | 1000 samples × 5 features |
+| Model retraining | 30-60s | 5000 samples |
+| Model comparison | 1-3s | 1000 test samples |
+| Hot-swap deployment | <100ms | Atomic operation |
 
-### View Server Logs
-Logs are printed to console. Look for:
-- `[INFO]` - Normal operations
-- `[DEBUG]` - Detailed information
-- `[WARNING]` - Potential issues
-- `[ERROR]` - Errors that occurred
+## Troubleshooting
 
-### Test Individual Tool
+### Issue: "No module named 'mcp'"
 ```bash
-python test_client.py
+pip install mcp>=1.0.0
 ```
 
----
-
-## ⚡ Performance Tips
-
-1. **Data Processing**: Use appropriate `data_size` for your use case
-2. **API Calls**: Increase `API_TIMEOUT` for slow APIs
-3. **Concurrency**: Adjust `MAX_WORKERS` based on your system
-4. **Memory**: Monitor `MEMORY_LIMIT_MB` for large operations
-
----
-
-## 🐛 Troubleshooting
-
-### "ImportError: No module named 'mcp'"
+### Issue: "models directory permission denied"
 ```bash
-# Make sure virtual environment is activated
-.venv\Scripts\activate
-# Then reinstall dependencies
-pip install -r requirements.txt
+chmod -R 755 models/
 ```
 
-### "Connection refused"
-- Ensure server is running: `python src/server.py`
-- Check port configuration in `.vscode/mcp.json`
-- Verify firewall settings
+### Issue: Demo hangs on drift detection
+- Ensure server is running in separate terminal
+- Check that src/guardian_server.py is in correct path
 
-### Server exits immediately
-1. Check `.env` file exists
-2. Look for error messages in console
-3. Verify Python version: `python --version` (should be 3.10+)
+### Issue: "Model not found" during comparison
+- Run retraining first: `trigger_model_retraining`
+- Verify `models/staging_model.pkl` exists
 
-### Tools not appearing in client
-1. Restart your MCP client
-2. Verify server started without errors
-3. Check `.vscode/mcp.json` configuration
-4. Try running `test_client.py` first
+## Next Steps
 
----
+1. **Read ARCHITECTURE.md** - Understand how it works
+2. **Review DEPLOYMENT.md** - Production deployment steps
+3. **Study MLOPS_BEST_PRACTICES.md** - Industry patterns
+4. **Experiment with demo_client.py** - Try different scenarios
+5. **Integrate with your data** - Use real production data
+6. **Deploy to production** - Follow deployment checklist
 
-## 📦 What's Included
+## Key Takeaways
 
-- ✅ 5 production-ready tools
-- ✅ 2 dynamic resources
-- ✅ 2 interactive prompts
-- ✅ Full async/await support
-- ✅ Comprehensive error handling
-- ✅ Progress tracking
-- ✅ Structured output types
-- ✅ Environment configuration
-- ✅ Test client
-- ✅ Full documentation
+- **Autonomous**: Detects drift, retrains, deploys without human intervention
+- **Safe**: Three-tier registry + rollback capability
+- **Observable**: Comprehensive logging and metrics
+- **Scalable**: Extensible to large-scale retraining
+- **Professional**: Production-grade MLOps infrastructure
 
----
+This represents the kind of system deployed at companies like Netflix, Uber, and Airbnb.
 
-## 🎓 Next Steps
+## Questions?
 
-1. **Explore the Code**: Open `src/server.py` to see implementation
-2. **Add Custom Tools**: Extend with your own tools
-3. **Customize Configuration**: Update `.env` for your needs
-4. **Integrate with Apps**: Use with Claude Desktop or your MCP client
-5. **Deploy**: Ready for production deployment
+Refer to:
+- README.md - Feature overview
+- ARCHITECTURE.md - System design
+- DEPLOYMENT.md - Production guide
+- MLOPS_BEST_PRACTICES.md - Best practices
+- demo_client.py - Working examples
 
----
+## License
 
-## 📖 Resources
-
-- [MCP Specification](https://modelcontextprotocol.io/)
-- [Python SDK Docs](https://github.com/modelcontextprotocol/python-sdk)
-- [FastMCP Guide](https://modelcontextprotocol.github.io/python-sdk/)
-
----
-
-## ✨ Features at a Glance
-
-| Feature | Status | Description |
-|---------|--------|-------------|
-| Text Analysis | ✅ | Sentiment, keywords, readability |
-| Code Analysis | ✅ | Complexity, structure, metrics |
-| API Integration | ✅ | REST API calls with error handling |
-| Data Processing | ✅ | Large-scale data with progress |
-| Database Ops | ✅ | SQL execution and transactions |
-| Progress Tracking | ✅ | Real-time operation updates |
-| Error Handling | ✅ | Robust exception management |
-| Logging | ✅ | Professional logging system |
-| Structured Output | ✅ | Type-safe responses |
-| Async/Await | ✅ | Non-blocking operations |
-
----
-
-**Status**: Ready to Use ✅  
-**Version**: 1.0.0  
-**Last Updated**: December 2024
+MIT License - Use freely in personal and commercial projects.

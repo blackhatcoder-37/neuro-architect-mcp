@@ -1,355 +1,335 @@
-# Advanced MCP Server - Architecture & Design
+# Self-Healing ML Pipeline Architecture
 
-## 🏗️ System Architecture
+## System Overview
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    MCP Clients                              │
-│  (Claude Desktop, VS Code, Custom Clients, etc.)            │
-└────────────────────┬────────────────────────────────────────┘
-                     │ JSON-RPC 2.0
-                     │ (STDIO Transport)
-┌────────────────────▼────────────────────────────────────────┐
-│          FastMCP Server Framework (Python)                  │
-├─────────────────────────────────────────────────────────────┤
-│                                                              │
-│  ┌──────────────────────────────────────────────────────┐  │
-│  │              Core Tools (5 Tools)                     │  │
-│  ├──────────────────────────────────────────────────────┤  │
-│  │ • analyze_text          (NLP Analysis)               │  │
-│  │ • fetch_data_from_api   (API Integration)            │  │
-│  │ • analyze_code          (Code Quality)               │  │
-│  │ • process_data          (Data Pipeline)              │  │
-│  │ • execute_database_query (Database Ops)              │  │
-│  └──────────────────────────────────────────────────────┘  │
-│                                                              │
-│  ┌──────────────────────────────────────────────────────┐  │
-│  │            Dynamic Resources (2 Resources)           │  │
-│  ├──────────────────────────────────────────────────────┤  │
-│  │ • config://settings/*   (Configuration)              │  │
-│  │ • stats://metrics       (Server Metrics)             │  │
-│  └──────────────────────────────────────────────────────┘  │
-│                                                              │
-│  ┌──────────────────────────────────────────────────────┐  │
-│  │         Interactive Prompts (2 Prompts)              │  │
-│  ├──────────────────────────────────────────────────────┤  │
-│  │ • code_review           (Code Review Template)       │  │
-│  │ • api_integration       (API Strategy Template)      │  │
-│  └──────────────────────────────────────────────────────┘  │
-│                                                              │
-│  ┌──────────────────────────────────────────────────────┐  │
-│  │        Support Systems                               │  │
-│  ├──────────────────────────────────────────────────────┤  │
-│  │ • Async/Await Processing                             │  │
-│  │ • Structured Output (Pydantic Models)                │  │
-│  │ • Progress Tracking & Reporting                      │  │
-│  │ • Comprehensive Error Handling                       │  │
-│  │ • Professional Logging (stderr)                      │  │
-│  │ • Environment Configuration (.env)                   │  │
-│  └──────────────────────────────────────────────────────┘  │
-│                                                              │
-└─────────────────────────────────────────────────────────────┘
-                           │
-        ┌──────────────────┴──────────────────┐
-        │                                      │
-   ┌────▼────┐                         ┌──────▼──────┐
-   │ External │                        │  Local      │
-   │   APIs   │                        │  Resources  │
-   └──────────┘                        └─────────────┘
-```
+The Self-Healing ML Pipeline is an autonomous MLOps system that continuously monitors production ML models, detects data drift, triggers retraining, and performs hot-swap deployments without human intervention.
 
-## 📊 Tool Specifications
+## Component Architecture
 
-### 1. Text Analysis Tool
-**Purpose**: Advanced NLP features for text processing  
-**Input**: Text, sentiment flag, keyword extraction flag  
-**Output**: Word count, sentiment, keywords, readability  
-**Performance**: O(n) where n = text length
+### 1. Guardian MCP Server (`src/guardian_server.py`)
 
-### 2. Code Analysis Tool
-**Purpose**: Code quality and complexity metrics  
-**Input**: Source code, language  
-**Output**: LOC, complexity, functions/classes, imports  
-**Performance**: O(n) where n = lines of code
+The central orchestration engine exposing 4 core tools via MCP protocol:
 
-### 3. API Integration Tool
-**Purpose**: REST API data fetching  
-**Input**: URL, HTTP method, timeout  
-**Output**: Status code, response data, headers  
-**Performance**: Network dependent + parsing
+#### 1.1 Monitor Tool (Drift Detection)
+- **Input**: Production data samples, training baseline, feature names
+- **Process**:
+  - Per-feature statistical testing
+  - Kolmogorov-Smirnov (KS) test: Detects if distributions differ significantly
+  - Wasserstein distance: Measures optimal transport cost between distributions
+  - Configurable threshold (default: 0.05)
+- **Output**: DriftResult with per-feature analysis
+- **Decision Gate**: Triggers retraining if drift detected
 
-### 4. Data Processing Tool
-**Purpose**: Large-scale data transformation  
-**Input**: Data size, operation type  
-**Output**: Processed items, batch info, metrics  
-**Performance**: O(n) with progress tracking
+#### 1.2 Surgeon Tool (Retraining)
+- **Input**: New training data, labels, feature names
+- **Process**:
+  - Split data: 80% train, 20% validation
+  - Fit StandardScaler on training subset
+  - Train Random Forest (100 trees, depth=15)
+  - Validate on held-out set
+  - Save model and scaler to staging registry
+  - Track metadata (accuracy, timestamp, hyperparameters)
+- **Output**: RetrainingResult with metrics and model path
+- **Safety**: Isolated to staging registry until approved
 
-### 5. Database Query Tool
-**Purpose**: SQL execution and transactions  
-**Input**: SQL query, transaction flag  
-**Output**: Rows affected, execution time, success status  
-**Performance**: Simulated - ready for real DB integration
+#### 1.3 Judge Tool (Model Evaluation)
+- **Input**: Test data, labels
+- **Process**:
+  - Load production model (current)
+  - Load staging model (candidate)
+  - Evaluate both on test set
+  - Calculate metrics: accuracy, precision, recall, F1
+  - Compare performance
+  - Apply decision threshold (>1% accuracy improvement)
+- **Output**: ModelComparison with metrics and deployment recommendation
+- **Decision Gate**: Approves or rejects staging model promotion
 
-## 🔄 Data Flow
+#### 1.4 Deployer Tool (Hot-Swap)
+- **Input**: Approved staging model
+- **Process**:
+  - Atomic three-step operation:
+    1. Backup: production -> backup registry
+    2. Promote: staging -> production registry
+    3. Update: pointer to new production model
+  - Metadata tracking
+  - Maintain rollback capability
+- **Output**: DeploymentResult with status and paths
+- **Safety**: Backup retained for instant rollback
 
-### Request Processing Pipeline
+## Data Flow
 
 ```
-Client Request
-     │
-     ▼
-MCP Protocol Parsing
-     │
-     ▼
-Tool/Resource/Prompt Identification
-     │
-     ▼
-Parameter Validation (Pydantic)
-     │
-     ▼
-Tool Execution (Async)
-     │
-     ├─► Progress Updates (if applicable)
-     │
-     ├─► Context Operations (logging, sampling)
-     │
-     └─► Result Generation
-           │
-           ▼
-      Structured Output
-           │
-           ▼
-      JSON Serialization
-           │
-           ▼
-      MCP Response
-           │
-           ▼
-      Client Display
+Production    Training
+Traffic  -->  Baseline
+  |              |
+  |              v
+  +----------> Monitor Tool
+               (Drift Check)
+                  |
+         ┌────────┴─────────┐
+         |                  |
+       NO              YES (Drift)
+       DRIFT              |
+         |                v
+         |           Surgeon Tool
+         |          (Retrain Model)
+         |                |
+         |                v
+         |           Staging Model
+         |                |
+         |                v
+         |           Judge Tool
+         |         (Evaluate & Compare)
+         |                |
+         |        ┌───────┴─────────┐
+         |        |                 |
+         |    BETTER           WORSE/SAME
+         |        |                 |
+         |        v                 |
+         |    Deployer Tool     (Hold)
+         |   (Hot-Swap Deploy)      |
+         |        |                 |
+         +────────┼─────────────────+
+                  |
+                  v
+          Production Model
+          (Serving Traffic)
 ```
 
-## 🔐 Security Design
-
-### Input Validation
-- Pydantic models validate all inputs
-- Type hints enforce parameter types
-- Field constraints (min/max, patterns)
-
-### Error Handling
-- Try-catch blocks on all operations
-- No sensitive data in error messages
-- Logging for audit trail
-
-### API Security
-- Timeout protection against hanging requests
-- Max retry limits
-- HTTP status validation
-
-### Environment Security
-- Configuration via .env (not in code)
-- Secret management ready
-- Secure defaults
-
-## 📈 Performance Characteristics
-
-### Benchmarks
-- Simple operations: < 10ms
-- Text analysis (1000 chars): ~20ms
-- Code analysis (100 LOC): ~15ms
-- API call: Network dependent
-- Data processing (1000 items): ~100ms
-
-### Scalability
-- Async/await for non-blocking I/O
-- Configurable worker threads
-- Memory pooling
-- Connection reuse
-
-### Resource Usage
-- Base memory: ~50MB
-- Per operation: Variable by tool
-- Connection pool: Configurable
-- Log rotation: Ready for implementation
-
-## 🧩 Component Breakdown
-
-### FastMCP Framework
-Handles:
-- Protocol implementation (JSON-RPC 2.0)
-- Tool/Resource/Prompt registration
-- STDIO transport
-- Session management
-- Error responses
-
-### Tools Implementation
-Each tool:
-- Validates inputs with Pydantic
-- Performs core operation
-- Reports progress (if long-running)
-- Returns structured output
-- Handles errors gracefully
-
-### Resources
-Static/dynamic endpoints providing:
-- Server configuration
-- System metrics
-- Status information
-
-### Prompts
-Template functions providing:
-- Task-specific guidance
-- LLM interaction patterns
-- Customizable parameters
-
-## 🔌 Extension Points
-
-### Adding New Tools
-1. Create Pydantic model for output
-2. Create tool function with @mcp.tool decorator
-3. Add parameter validation
-4. Implement core logic
-5. Handle errors
-6. Return structured output
-
-### Adding New Resources
-1. Define URI template
-2. Create resource function with @mcp.resource decorator
-3. Implement content generation
-4. Return formatted response
-
-### Adding New Prompts
-1. Create prompt function with @mcp.prompt decorator
-2. Define parameters
-3. Generate template text
-4. Return formatted prompt
-
-## 🌍 Integration Patterns
-
-### With Claude Desktop
-1. Copy server config to Claude's config directory
-2. Restart Claude
-3. Use tools in conversation naturally
-
-### With Custom Applications
-1. Import MCP client library
-2. Create StdioServerParameters
-3. Connect via stdio_client
-4. Call tools/resources/prompts programmatically
-
-### With Web Applications
-1. Run server as subprocess
-2. Communicate via stdio
-3. Handle responses asynchronously
-4. Implement rate limiting
-
-## 📋 Configuration Hierarchy
+## Model Registry Structure
 
 ```
-Default Values (in code)
-        ↓
-Environment Variables (.env)
-        ↓
-Runtime Parameters (function args)
-        ↓
-Final Configuration
+models/
+├── production/
+│   ├── production_model.pkl          # Current serving model
+│   ├── production_scaler.pkl         # Feature scaler
+│   └── production_metadata.json      # Deployment info
+├── staging/
+│   ├── staging_model.pkl            # Candidate model
+│   ├── staging_scaler.pkl           # Feature scaler
+│   └── staging_metadata.json        # Validation metrics
+└── backup/
+    ├── backup_model.pkl             # Previous production
+    ├── backup_scaler.pkl            # Feature scaler
+    └── backup_metadata.json         # Previous deployment info
 ```
 
-## 🚀 Deployment Considerations
+## Statistical Methods
 
-### Local Deployment
-- Works on any system with Python 3.10+
-- No external dependencies (except listed)
-- STDIO transport for security
-- Suitable for development/testing
-
-### Server Deployment
-- Can run as systemd service
-- Supports HTTP transport for scalability
-- Multiple instances for load balancing
-- Environment-based configuration
-
-### Cloud Deployment
-- Docker containerization ready
-- Kubernetes-friendly
-- Stateless design for horizontal scaling
-- Environment variable configuration
-
-## 🔬 Testing Architecture
-
-### Test Coverage
-- Unit tests for individual tools
-- Integration tests for workflows
-- End-to-end tests with test_client.py
-- Performance benchmarks
-
-### Test Client
-- Demonstrates all tool usage
-- Shows resource access
-- Tests prompt generation
-- Validates responses
-
-## 📚 Documentation Structure
-
+### Kolmogorov-Smirnov Test
+Used for univariate distribution comparison:
 ```
-README.md           ← Overview and main documentation
-QUICKSTART.md       ← Getting started guide
-ARCHITECTURE.md     ← This file (system design)
-src/server.py       ← Implementation with docstrings
-.env                ← Configuration template
-pyproject.toml      ← Dependencies and metadata
+H0: Production data comes from same distribution as training
+H1: Distributions differ
+
+KS statistic = max|F_train(x) - F_prod(x)|
+p-value threshold = 0.05
+
+If KS statistic > threshold: Reject H0, drift detected
 ```
 
-## 🔄 Update & Maintenance
+### Wasserstein Distance
+Measures transportation cost between distributions:
+```
+W(P, Q) = inf E[|X - Y|] over all couplings
+        = Optimal Transport cost
 
-### Code Organization
-- Clear separation of concerns
-- Modular design for easy updates
-- Well-documented code
-- Type hints throughout
+Higher distance = Greater distributional shift
+Threshold = 0.3 (empirically determined)
+```
 
-### Versioning
-- Version in pyproject.toml
-- Changelog tracking
-- Backward compatibility
+## Training Pipeline
 
-### Logging
-- Structured logging for debugging
-- Multiple log levels
-- Timestamped entries
-- Error tracking
+### Data Processing
+1. Concatenate old and new data
+2. Stratified split: 80/20 train/validation
+3. Fit StandardScaler on training subset only
+4. Apply scaler to both train and validation
 
-## 🎯 Future Enhancements
+### Model Training
+```
+Random Forest Configuration:
+- Estimators: 100 trees
+- Max Depth: 15 (prevents overfitting)
+- Min Samples Split: 5
+- Jobs: -1 (parallel processing)
+- Random State: 42 (reproducibility)
+```
 
-### Planned Features
-1. **Authentication**: OAuth 2.0 support
-2. **Database Integration**: Real database connectors
-3. **Caching**: Redis-based caching
-4. **Webhooks**: Event-based notifications
-5. **Monitoring**: Prometheus metrics
-6. **Tracing**: Distributed tracing support
-7. **Rate Limiting**: Request throttling
-8. **API Versioning**: Multiple API versions
+### Validation
+- Accuracy: Overall correctness
+- Precision: Per-class positive predictions
+- Recall: Per-class true positives
+- F1: Harmonic mean of precision/recall
+- Weighted averaging for imbalanced datasets
 
-### Optimization Opportunities
-1. Connection pooling improvements
-2. Result caching for repeated queries
-3. Batch operation support
-4. Streaming responses for large data
-5. Compression for network efficiency
+## Deployment Safety Mechanisms
 
----
+### Pre-Deployment Checks
+1. **Staging Validation**: New model must improve accuracy >1% OR maintain accuracy with better F1
+2. **Test Set Comparison**: Evaluated on held-out test data
+3. **Metadata Verification**: Training data size, timestamp, hyperparameters logged
 
-## 📞 Technical Support
+### Atomic Swap Operation
+```python
+Step 1: Backup current production
+    production -> backup (read production, write backup)
 
-For architecture questions or design clarifications:
-1. Review this document
-2. Check code comments in src/server.py
-3. Refer to MCP specification
-4. Review Python SDK documentation
+Step 2: Promote staging
+    staging -> production (copy staging to production registry)
 
----
+Step 3: Update pointers
+    All subsequent calls use new production model
+```
 
-**Document Version**: 1.0  
-**Last Updated**: December 2024  
-**Architecture Style**: Modern Python Async  
-**Compliance**: MCP Specification 2025
+### Rollback Capability
+- Backup model always retained
+- Can restore from backup if production fails
+- Manual rollback via tool re-invocation
+- Metadata tracks all versions
+
+## Configuration Parameters
+
+### Drift Detection
+- `ks_threshold`: KS statistic threshold (default: 0.05)
+- `wasserstein_threshold`: Wasserstein distance limit (default: 0.3)
+- `feature_subset`: Limit drift check to specific features (default: None = all)
+- `window_size`: Recent samples to analyze (default: 1000)
+
+### Retraining
+- `validation_split`: Train/validation ratio (default: 0.2)
+- `random_state`: Reproducibility seed (default: 42)
+- `n_estimators`: Random Forest tree count (default: 100)
+- `max_depth`: Tree depth limit (default: 15)
+
+### Deployment
+- `accuracy_improvement_threshold`: Minimum improvement (default: 0.01 = 1%)
+- `backup_retention`: Keep backup for rollback (default: True)
+
+## Error Handling and Logging
+
+### Logging Levels
+- **ERROR**: System failures, deployment aborts, data errors
+- **INFO**: Drift detection results, retraining completion, deployments
+- **DEBUG**: Feature-level drift stats, model metrics
+
+### Error Recovery
+```
+Tool Execution Failure
+    |
+    v
+Log error with context
+    |
+    v
+Graceful failure response
+    |
+    v
+Staging remains unchanged
+    |
+    v
+Production model unaffected
+```
+
+## Performance Characteristics
+
+### Time Complexity
+- **Drift Detection**: O(n*m) where n=samples, m=features
+- **Retraining**: O(n*m*log(n)) for Random Forest (sklearn optimized)
+- **Model Comparison**: O(n*m) for prediction + metric calculation
+- **Deployment**: O(1) atomic operation
+
+### Space Complexity
+- **Model Storage**: Varies by features and tree count (~1-10MB typical)
+- **Scaler Storage**: O(m) for feature statistics
+- **Metadata**: ~1KB per model version
+
+### Expected Runtimes (on 10k samples, 5 features)
+- Drift detection: 0.5-2 seconds
+- Retraining: 30-60 seconds
+- Model comparison: 1-3 seconds
+- Deployment: <100ms
+
+## Extension Points
+
+### Custom Drift Detection
+Replace KS + Wasserstein with:
+- Kullback-Leibler divergence
+- Population Stability Index (PSI)
+- Adversarial validation
+- Custom domain-specific metrics
+
+### Alternative ML Frameworks
+Swap RandomForest for:
+- XGBoost / LightGBM (gradient boosting)
+- Neural networks (sklearn MLPClassifier or PyTorch)
+- Ensemble methods (voting classifiers)
+
+### Online Learning
+Implement incremental learning:
+- Partial fit on streaming data
+- Windowed retraining
+- Continual learning approaches
+
+### A/B Testing
+Add shadow deployment:
+- Run staging model in parallel
+- Compare metrics before full swap
+- Gradual traffic migration
+
+### Monitoring Dashboard
+Integrate with:
+- Prometheus metrics
+- Grafana dashboards
+- Datadog/New Relic
+- Custom logging pipelines
+
+## Security Considerations
+
+### Data Privacy
+- Models operate on feature data only
+- No raw data storage
+- Scalers fit only on training data
+- Metadata logged without sensitive info
+
+### Model Protection
+- Serialization via joblib (trusted library)
+- Backup versions for audit trail
+- Version metadata with timestamps
+- Change history tracking
+
+### Deployment Safety
+- Atomic operations prevent partial states
+- Rollback always available
+- Manual approval option for production
+- Comprehensive logging for compliance
+
+## Integration Points
+
+### With ML Platform
+- Model serving endpoint (replace with new production model)
+- Feature store (consume training/validation data)
+- Data warehouse (log drift detection results)
+- ML Ops dashboard (status and metrics)
+
+### With Orchestration
+- Kubernetes: Deploy as service, trigger via API
+- Airflow/Prefect: Scheduled drift checks
+- Apache Spark: Large-scale retraining
+- Ray: Distributed hyperparameter tuning
+
+### With Monitoring
+- CloudWatch / StackDriver: Cost and performance metrics
+- Prometheus: Quantitative monitoring
+- Custom webhooks: Alert integrations
+- Slack/PagerDuty: On-call notifications
+
+## Why This Architecture Wins
+
+1. **Autonomous**: No human in the loop once deployed
+2. **Safe**: Three-tier registry + rollback capability
+3. **Stateless**: Each tool invocation is independent
+4. **Observable**: Comprehensive logging and metadata
+5. **Extensible**: Pluggable components for different ML frameworks
+6. **Enterprise-Ready**: Error handling, versioning, audit trails
+
+This represents real MLOps infrastructure used in production systems.
