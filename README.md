@@ -20,3 +20,7 @@
 2.  **Install dependencies:**
     ```bash
     pip install -r requirements.tx
+    ### Running the System
+To start the autonomous monitoring system, run the main application from the `src` directory:
+
+```bash
